@@ -2,10 +2,15 @@ import streamlit as st
 import pandas as pd
 import sqlite3
 import re
+import os
+from dotenv import load_dotenv
+
+# Carrega as variáveis ambiente
+load_dotenv()
 
 def fetch_data():
-    # Conecta ao banco de dados SQLite
-    conn = sqlite3.connect('src/data/CourseEvaluationSQL.db')
+    # Conecta ao banco de dados
+    conn = sqlite3.connect(os.getenv('DATABASE_URL'))
 
     # Busca todos os campos da tabela de pessoas onde ela está ativa na escola, é um professor e o nome do programa é Not Applicable
     query = """
@@ -15,6 +20,7 @@ def fetch_data():
         AND programName == 'Not Applicable'
     """
 
+    # Executa a query e coloca o resultado em um DataFrame
     teachers = pd.read_sql_query(query, conn)
 
     # Retira or cursos que não são da PGLS (Obtidos manualmente da coluna departmentName no qual o programName é Not Applicable)
@@ -31,7 +37,6 @@ def fetch_data():
 
     # Pega os ids dos professores
     teachers_ids = filtered_teachers['personId'].unique()
-
     # Coloca os ids em uma só string separado por vírgulas
     teachers_ids_str = ', '.join(map(str, teachers_ids))
 
@@ -42,6 +47,7 @@ def fetch_data():
     """
     responses = pd.read_sql_query(query, conn)
 
+    # Pega os ids únicos para buscar na tabela de pesquisas
     surveys_ids = responses['surveyId'].unique()
     surveys_ids_str = ', '.join(map(str, surveys_ids))
     query = f"""
@@ -50,6 +56,7 @@ def fetch_data():
     """
     surveys_dim = pd.read_sql_query(query, conn)
 
+    # Pega os ids únicos para buscar na tabela de perguntas
     questions_ids = responses['questionId'].sort_values().unique()
     questions_ids_str = ', '.join(map(str, questions_ids))
     query = f"""
@@ -58,6 +65,7 @@ def fetch_data():
     """
     question_dim = pd.read_sql_query(query, conn)
 
+    # Pega os ids únicos para buscar na tabela de respostas
     responseSet_ids = responses['responseSetId'].unique()
     responseSet_ids_str = ', '.join(map(str, responseSet_ids))
     query = f"""
@@ -66,6 +74,7 @@ def fetch_data():
     """
     response_set_dim = pd.read_sql_query(query, conn)
 
+    # Pega os ids únicos para buscar na tabela de períodos
     periods_ids = responses['periodId'].unique()
     periods_ids_str = ', '.join(map(str, periods_ids))
     query = f"""
@@ -74,6 +83,7 @@ def fetch_data():
     """
     period_dim = pd.read_sql_query(query, conn)
 
+    # Pega os ids únicos para buscar na tabela de cursos
     courses_ids = responses['courseId'].unique()
     courses_ids_str = ', '.join(map(str, courses_ids))
     query = f"""
@@ -82,6 +92,7 @@ def fetch_data():
     """
     course_dim = pd.read_sql_query(query, conn)
 
+    # Busca os comentários
     query = f"""
         SELECT crs_code, eval_username, question, survey, response FROM tb_course_evaluation_results_Comments
     """
@@ -123,6 +134,7 @@ def group_responses(filtered_teachers, responses, surveys_dim, question_dim, res
         'periodYear', 'courseName', 'courseNumber', 'schoolCourseCode']).agg(
         {'responseZeroValue': 'mean', 'responseValue': 'mean'}).reset_index()
 
+    # Renomeia as colunas
     responses_grouped.rename(columns={
         'coursevalUserName': 'teacher',
         'schoolCourseCode': 'schoolCourseCode',
@@ -131,14 +143,16 @@ def group_responses(filtered_teachers, responses, surveys_dim, question_dim, res
         'questionSubCategory': 'questionSubCategory',
         'responseScale': 'responseScale',
         'responseLegend': 'responseLegend',
-        'periodName': 'periodName',
-        'periodYear': 'periodYear',
+        'periodName': 'period',
+        'periodYear': 'year',
         'courseName': 'courseName',
         'courseNumber': 'courseNumber',
         'responseZeroValue': 'responseZeroValue',
         'responseValue': 'responseValue'
     }, inplace=True)
-    responses_grouped['periodYear'] = responses_grouped['periodYear'].apply(int)
+    
+    # Converte o ano para inteiro
+    responses_grouped['year'] = responses_grouped['year'].apply(int)
     
     def extrair_turma_e_divisao(codigo):
         # Expressão regular para extrair a turma (letras e números iniciais)
@@ -152,71 +166,92 @@ def group_responses(filtered_teachers, responses, surveys_dim, question_dim, res
         # Retorna a turma com a divisão anexada, se existir
         return f"{turma}_{divisao}" if divisao else turma
 
-
+    # Adiciona uma coluna "turma" com a turma e a divisão
     responses_grouped['turma'] = responses_grouped['schoolCourseCode'].apply(lambda x: x.split('.')[-1]).apply(extrair_turma_e_divisao)
 
+    # Ordena os dados
+    responses_grouped.sort_values(by=['year', 'schoolCourseCode', 'teacher'], inplace=True)
     
-    responses_grouped.sort_values(by=['periodYear', 'schoolCourseCode', 'teacher'], inplace=True)
+    # Reseta o índice
+    responses_grouped.reset_index(drop=True, inplace=True)
     
     return responses_grouped
 
 def group_comments(comments, schoolCourseCodes):
-    # Trabalha com a tabela de comentários
+    # Substitui os valores das perguntas por valores mais legíveis
     comments['question'] = comments['question'].replace({
         'O professor continue a fazer em sala de aula. / What should the professor continue doing in this course?': 'continue_doing',
         'O professor deixe de fazer em sala de aula. / What should the professor stop doing in the classroom?': 'stop_doing',
         'O professor passe a fazer em sala de aula. / What should the professor start doing in the classroom?': 'start_doing'
     })
 
+    # Filtra os comentários que possuem as perguntas de interesse e os códigos de curso da PGLS
     comments = comments[(comments['question'].isin(['continue_doing', 'stop_doing', 'start_doing'])) & (comments['crs_code'].isin(schoolCourseCodes))]
 
+    # Agrupa os comentários por codigo da turma, professor, pesquisa e pergunta
     comments_grouped = comments.groupby(['crs_code', 'eval_username', 'survey', 'question'])['response'].apply(lambda x: x.dropna().tolist()).reset_index()
 
+    # Cria uma coluna para cada tipo resposta
     comments_grouped = comments_grouped.pivot_table(index=['crs_code', 'eval_username', 'survey'], columns='question', values='response', aggfunc='first').reset_index()
 
+    # Retira o nome das colunas
     comments_grouped.columns.name = None
 
+    # Renomeia as colunas
     comments_grouped.rename(columns={
         'continue_doing': 'continue_doing_comments',
         'stop_doing': 'stop_doing_comments',
         'start_doing': 'start_doing_comments'
     }, inplace=True)
 
+    # Preenche os valores nulos com uma string vazia
     comments_grouped.fillna('', inplace=True)
     
+    # Transforma as listas de comentários em tuplas
     comments_grouped['continue_doing_comments'] = comments_grouped['continue_doing_comments'].apply(tuple)
     comments_grouped['stop_doing_comments'] = comments_grouped['stop_doing_comments'].apply(tuple)
     comments_grouped['start_doing_comments'] = comments_grouped['start_doing_comments'].apply(tuple)
 
-    
     return comments_grouped
 
 def main():
+    # Configurações da página
     st.title("Sistema de acompanhamento de docentes")
     st.write("Este é um sistema de acompanhamento de docentes da PGLS. Aqui você pode ver os feedbacks dos alunos sobre os professores.")
     
+    # Busca os dados do banco e chama as funções responsáveis por modificar eles
     filtered_teachers, responses, surveys_dim, question_dim, response_set_dim, period_dim, course_dim, comments = fetch_data()
     responses_grouped = group_responses(filtered_teachers, responses, surveys_dim, question_dim, response_set_dim, period_dim, course_dim)
     comments_grouped = group_comments(comments, responses_grouped['schoolCourseCode'].unique())
 
+    # Carrega os dados antigos
     old_data = pd.read_csv('src/data/surveys_old.csv')
     
+    # Cria as abas para visualização dos dados
     tab_old, tab_new = st.tabs(["Feedbacks do sistema antigo", "Feedbacks do sistema novo"])
     with tab_old:
+        st.subheader("Feedbacks antigos")
+        st.write("Escolha os filtros para analisar os dados")
+        
+        # Cria uma lista de anos disponíveis para filtrar
         years_available = old_data['ano'].unique().tolist()
         years_available.sort(reverse=True)
-                
+        
+        # Cria uma lista com os nomes dos professores para serem filtrados
         teachers_names = old_data['professor'].unique().tolist()
         teachers_names = [name.upper() for name in teachers_names]
         teachers_names.sort()
         
+        # Cria uma lista com as turmas para serem filtradas
         turmas = old_data['turma'].unique().tolist()
         turmas.sort()
         
+        # Cria os filtros
         professor = st.selectbox('Selecione o Professor', ['Todos'] + teachers_names)
         ano = st.multiselect('Selecione o ano', years_available, default=years_available)
-        turma = st.selectbox('Selecione a turma para acompanhar', ['Todos'] + turmas)
+        turma = st.selectbox('Selecione a turma', ['Todos'] + turmas)
         
+        # Copia o dataframe original para filtrar
         dados_filtrados = old_data.copy()
         if professor != 'Todos':
             dados_filtrados = dados_filtrados[dados_filtrados['professor'] == professor]
@@ -225,33 +260,41 @@ def main():
             
         dados_filtrados = dados_filtrados[dados_filtrados['ano'].isin(ano)]
         
-        st.subheader("Resultados antigos")
+        # Mostra os dados filtrados
         st.write(dados_filtrados)
 
     with tab_new:
-        years_available = responses_grouped['periodYear'].unique().tolist()
+        st.subheader("Feedbacks novos")
+        st.write("Escolha os filtros para analisar os dados")
+        
+        # Cria uma lista de anos disponíveis para filtrar
+        years_available = responses_grouped['year'].unique().tolist()
         years_available.sort(reverse=True)
         
+        # Cria uma lista com os nomes dos professores para serem filtrados
         teachers_names = responses_grouped['fullName'].unique().tolist()
         teachers_names = [name.upper() for name in teachers_names]
         teachers_names.sort()
         
+        # Cria uma lista com as turmas para serem filtradas
         turmas = responses_grouped['turma'].unique().tolist()
         turmas.sort()
         
+        # Cria os filtros
         professor = st.selectbox('Selecione o Professor', ['Todos'] + teachers_names)
         ano = st.multiselect('Selecione o ano', years_available, default=years_available)
-        turma = st.selectbox('Selecione a turma para acompanhar', ['Todos'] + turmas)
+        turma = st.selectbox('Selecione a turma', ['Todos'] + turmas)
 
+        # Copia o dataframe original para filtrar
         dados_filtrados = responses_grouped.copy()
         if professor != 'Todos':
             dados_filtrados = dados_filtrados[dados_filtrados['fullName'] == professor]
         if turma != 'Todos':
             dados_filtrados = dados_filtrados[dados_filtrados['turma'] == turma]
 
-        dados_filtrados = dados_filtrados[dados_filtrados['periodYear'].isin(ano)]
-        
-        st.subheader("Resultados novos")
+        dados_filtrados = dados_filtrados[dados_filtrados['year'].isin(ano)]
+                
+        # Mostra os dados
         st.write(dados_filtrados)
 
 if __name__ == "__main__":

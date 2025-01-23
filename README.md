@@ -1,1 +1,1 @@
-# Sistema de Gerenciamento de discientes da PGLS
+# Sistema de acompanhamento da PGLS
