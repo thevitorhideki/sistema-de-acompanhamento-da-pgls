@@ -103,6 +103,18 @@ def fetch_data():
     
     return filtered_teachers, responses, surveys_dim, question_dim, response_set_dim, period_dim, course_dim, comments
 
+def extrair_turma_e_divisao(codigo):
+        # Expressão regular para extrair a turma (letras e números iniciais)
+        match_turma = re.match(r'^[A-Za-z]+\d+', codigo)
+        turma = match_turma.group(0) if match_turma else codigo
+
+        # Expressão regular para extrair a divisão (últimos caracteres após "_", se existir)
+        match_divisao = re.search(r'_(\w+)$', codigo)
+        divisao = match_divisao.group(1) if match_divisao else None
+
+        # Retorna a turma com a divisão anexada, se existir
+        return f"{turma}_{divisao}" if divisao else turma
+
 def group_responses(filtered_teachers, responses, surveys_dim, question_dim, response_set_dim, period_dim, course_dim):
     # Junta as respostas com os professores
     responses_joined_with_teachers = pd.merge(responses, filtered_teachers, left_on='personAssesseeId', right_on='personId')
@@ -153,21 +165,10 @@ def group_responses(filtered_teachers, responses, surveys_dim, question_dim, res
     
     # Converte o ano para inteiro
     responses_grouped['year'] = responses_grouped['year'].apply(int)
-    
-    def extrair_turma_e_divisao(codigo):
-        # Expressão regular para extrair a turma (letras e números iniciais)
-        match_turma = re.match(r'^[A-Za-z]+\d+', codigo)
-        turma = match_turma.group(0) if match_turma else codigo
-
-        # Expressão regular para extrair a divisão (últimos caracteres após "_", se existir)
-        match_divisao = re.search(r'_(\w+)$', codigo)
-        divisao = match_divisao.group(1) if match_divisao else None
-
-        # Retorna a turma com a divisão anexada, se existir
-        return f"{turma}_{divisao}" if divisao else turma
 
     # Adiciona uma coluna "turma" com a turma e a divisão
     responses_grouped['turma'] = responses_grouped['schoolCourseCode'].apply(lambda x: x.split('.')[-1]).apply(extrair_turma_e_divisao)
+    responses_grouped['fullName'] = responses_grouped['fullName'].apply(lambda x: x.upper())
 
     # Ordena os dados
     responses_grouped.sort_values(by=['year', 'schoolCourseCode', 'teacher'], inplace=True)
@@ -211,6 +212,8 @@ def group_comments(comments, schoolCourseCodes):
     comments_grouped['continue_doing_comments'] = comments_grouped['continue_doing_comments'].apply(tuple)
     comments_grouped['stop_doing_comments'] = comments_grouped['stop_doing_comments'].apply(tuple)
     comments_grouped['start_doing_comments'] = comments_grouped['start_doing_comments'].apply(tuple)
+    
+    comments_grouped['turma'] = comments_grouped['crs_code'].apply(lambda x: x.split('.')[-1]).apply(extrair_turma_e_divisao)
 
     return comments_grouped
 
@@ -264,38 +267,68 @@ def main():
         st.write(dados_filtrados)
 
     with tab_new:
-        st.subheader("Feedbacks novos")
-        st.write("Escolha os filtros para analisar os dados")
-        
         # Cria uma lista de anos disponíveis para filtrar
         years_available = responses_grouped['year'].unique().tolist()
         years_available.sort(reverse=True)
         
         # Cria uma lista com os nomes dos professores para serem filtrados
-        teachers_names = responses_grouped['fullName'].unique().tolist()
-        teachers_names = [name.upper() for name in teachers_names]
-        teachers_names.sort()
+        teachers_names = sorted([name.upper() for name in responses_grouped['fullName'].unique().tolist()])
         
-        # Cria uma lista com as turmas para serem filtradas
-        turmas = responses_grouped['turma'].unique().tolist()
-        turmas.sort()
+        col1, col2 = st.columns(2)
+
+        with col1:
+            professor = st.selectbox('Selecione o Professor', ['Todos'] + teachers_names)
         
-        # Cria os filtros
-        professor = st.selectbox('Selecione o Professor', ['Todos'] + teachers_names)
-        ano = st.multiselect('Selecione o ano', years_available, default=years_available)
-        turma = st.selectbox('Selecione a turma', ['Todos'] + turmas)
+        if professor == 'Todos':
+            turmas_list = responses_grouped['turma'].unique().tolist()
+        else:
+            turmas_list = responses_grouped[responses_grouped['fullName'] == professor]['turma'].unique().tolist()
+        turmas_list.sort()
+        
+        with col2:
+            turma = st.selectbox('Selecione a turma', ['Todos'] + turmas_list)
+    
+        ano = st.multiselect('Selecione o ano', years_available, default=years_available)    
 
         # Copia o dataframe original para filtrar
         dados_filtrados = responses_grouped.copy()
         if professor != 'Todos':
             dados_filtrados = dados_filtrados[dados_filtrados['fullName'] == professor]
-        if turma != 'Todos':
+            st.write("Disciplinas que esse professor ministrou:")
+            st.write(dados_filtrados[['departmentName', 'courseName', 'turma']].drop_duplicates())
+                        
+            feedbacks = dados_filtrados.groupby(['survey', 'questionSubCategory', 'year', 'period', 'responseScale']).agg({
+                'responseValue': 'mean'
+            })
+            
+            st.write('## Avaliações')
+            st.write(feedbacks)
+
+            st.write("## Comentários")
+            teachers_username = filtered_teachers[filtered_teachers['fullName'].str.upper() == professor]['coursevalUserName'].values[0]
+            comments_teacher = comments_grouped[(comments_grouped['eval_username'] == teachers_username)]
+            for index, row in comments_teacher.iterrows():
+                st.write(f"Turma: {row['turma']}")
+                st.write(f"Comentários de {row['survey']}:")
+                st.write(f"### O que o professor deve continuar fazendo:")
+                for comment in row['continue_doing_comments']:
+                    st.write(f"- {comment}")
+                
+                st.write(f"### O que o professor deve parar de fazer:")
+                for comment in row['stop_doing_comments']:
+                    st.write(f"- {comment}")
+                
+                st.write(f"### O que o professor deve começar a fazer:")
+                for comment in row['start_doing_comments']:
+                    st.write(f"- {comment}")
+                st.markdown("---")
+        if turma != 'Todos' and professor == 'Todos':
             dados_filtrados = dados_filtrados[dados_filtrados['turma'] == turma]
+            
+            st.write("Professores que ministraram essa turma:")
+            st.write(dados_filtrados[['fullName', 'courseName']].drop_duplicates())
 
         dados_filtrados = dados_filtrados[dados_filtrados['year'].isin(ano)]
-                
-        # Mostra os dados
-        st.write(dados_filtrados)
 
 if __name__ == "__main__":
     main()
