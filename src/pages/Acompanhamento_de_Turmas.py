@@ -7,12 +7,13 @@ from openai import OpenAI
 st.set_page_config(page_title="PGLS | Acompanhamento de Turmas",
                    page_icon="📈", layout='wide')
 
-client = OpenAI()
+# Inicializa o client da OpenAI
+client = OpenAI(api_key=st.secrets.OPENAI_API_KEY)
 
 
 def fetch_data():
     # Conecta ao banco de dados
-    conn = sqlite3.connect(st.secrets['DATABASE_URL'])
+    conn = sqlite3.connect(st.secrets.DATABASE_URL)
 
     # Busca todos os campos da tabela de pessoas onde ela está ativa na escola, é um professor e o nome do programa é Not Applicable
     query = """
@@ -45,6 +46,7 @@ def fetch_data():
     """
     surveys_dim = pd.read_sql_query(query, conn)
 
+    # Pega os ids únicos para buscar na tabela de informações das pesquisas
     surveyAssessmentFact_ids = responses['surveyAssessmentFactId'].unique()
     surveyAssessmentFact_ids_str = ', '.join(
         map(str, surveyAssessmentFact_ids))
@@ -102,17 +104,17 @@ def fetch_data():
     return teachers, responses, surveys_dim, surveyAssessmentFact_dim, question_dim, response_set_dim, period_dim, course_dim, comments
 
 
-def extrair_turma_e_divisao(codigo):
+def extract_class_and_subdivision(code):
     # Expressão regular para extrair a turma (letras e números iniciais)
-    match_turma = re.match(r'^[A-Za-z]+\d+', codigo)
-    turma = match_turma.group(0) if match_turma else codigo
+    match_class = re.match(r'^[A-Za-z]+\d+', code)
+    class_code = match_class.group(0) if match_class else code
 
     # Expressão regular para extrair a divisão (últimos caracteres após "_", se existir)
-    match_divisao = re.search(r'_(\w+)$', codigo)
-    divisao = match_divisao.group(1) if match_divisao else None
+    match_subdivision = re.search(r'_(\w+)$', code)
+    subdivision = match_subdivision.group(1) if match_subdivision else None
 
     # Retorna a turma com a divisão anexada, se existir
-    return f"{turma}_{divisao}" if divisao else turma
+    return f"{class_code}_{subdivision}" if subdivision else class_code
 
 
 def group_responses(teachers, responses, surveys_dim, surveyAssessmentFact_dim, question_dim, response_set_dim, period_dim, course_dim):
@@ -156,16 +158,8 @@ def group_responses(teachers, responses, surveys_dim, surveyAssessmentFact_dim, 
     responses_from_pgls = responses_joined_with_courses[responses_joined_with_courses['surveyName'].str.contains(
         'PGLS')]
 
-    # Agrupa as notas por professor, curso e pesquisa
-    responses_grouped = responses_from_pgls.groupby(
-        ['departmentName', 'fullName', 'lastNameFirst', 'coursevalUserName', 'email', 'surveyName',
-         'question', 'questionSubCategory', 'responseScale', 'responseLegend', 'periodName',
-         'periodYear', 'courseName', 'courseNumber', 'schoolCourseCode', 'totalExpectedSurveys',
-         'totalSurveysTaken', 'responseRate']).agg(
-        {'responseZeroValue': 'mean', 'responseValue': 'mean'}).reset_index()
-
     # Renomeia as colunas
-    responses_grouped.rename(columns={
+    responses_from_pgls = responses_from_pgls.rename(columns={
         'coursevalUserName': 'teacher',
         'schoolCourseCode': 'schoolCourseCode',
         'surveyName': 'survey',
@@ -179,19 +173,27 @@ def group_responses(teachers, responses, surveys_dim, surveyAssessmentFact_dim, 
         'courseNumber': 'courseNumber',
         'responseZeroValue': 'responseZeroValue',
         'responseValue': 'responseValue'
-    }, inplace=True)
+    })
 
     # Converte o ano para inteiro
-    responses_grouped['year'] = responses_grouped['year'].apply(int)
+    responses_from_pgls.loc[:, 'year'] = responses_from_pgls['year'].apply(int)
 
     # Adiciona uma coluna "turma" com a turma e a divisão
-    responses_grouped['classCode'] = responses_grouped['schoolCourseCode'].apply(
+    responses_from_pgls.loc[:, 'classCode'] = responses_from_pgls['schoolCourseCode'].apply(
         lambda x: x.split('.')[-1])
-    responses_grouped['turma'] = responses_grouped['classCode'].apply(
-        extrair_turma_e_divisao)
-    responses_grouped['fullName'] = responses_grouped['fullName'].apply(
+    responses_from_pgls.loc[:, 'turma'] = responses_from_pgls['classCode'].apply(
+        extract_class_and_subdivision)
+    responses_from_pgls.loc[:, 'fullName'] = responses_from_pgls['fullName'].apply(
         lambda x: x.upper())
-
+    
+    # Agrupa as notas por professor, curso e pesquisa
+    responses_grouped = responses_from_pgls.groupby(
+        ['departmentName', 'classCode', 'turma', 'fullName', 'lastNameFirst', 'teacher', 'email', 'survey',
+         'question', 'questionSubCategory', 'responseScale', 'responseLegend', 'period',
+         'year', 'courseName', 'courseNumber', 'schoolCourseCode', 'totalExpectedSurveys',
+         'totalSurveysTaken', 'responseRate']).agg(
+        {'responseZeroValue': 'mean', 'responseValue': 'mean'}).reset_index()
+         
     # Ordena os dados
     responses_grouped.sort_values(
         by=['year', 'schoolCourseCode', 'teacher'], inplace=True)
@@ -199,7 +201,44 @@ def group_responses(teachers, responses, surveys_dim, surveyAssessmentFact_dim, 
     # Reseta o índice
     responses_grouped.reset_index(drop=True, inplace=True)
 
-    return responses_grouped
+    nps_teachers = responses_from_pgls[responses_from_pgls['questionSubCategory']
+                                     == 'Avaliação Geral']
+    nps_teachers = nps_teachers.groupby(['fullName', 'email', 'classCode', 'survey', 'period', 'totalExpectedSurveys',
+                                         'totalSurveysTaken', 'responseRate'])['responseValue'].apply(lambda x: x.dropna().tolist()).reset_index()
+    nps_teachers.rename(columns={'responseValue': 'nps_index'}, inplace=True)
+    nps_teachers['nps_index'] = nps_teachers['nps_index'].apply(tuple)
+    nps_teachers.drop_duplicates(inplace=True)
+    
+    promoters_count = (nps_teachers.explode('nps_index')
+        .groupby(['email', 'fullName', 'classCode', 'survey', 'period', 
+                'totalExpectedSurveys', 'totalSurveysTaken', 'responseRate'])
+        .agg(count=('nps_index', lambda x: (x >= 9).sum()))
+        .reset_index())
+
+    detractors_count = (nps_teachers.explode('nps_index')
+        .groupby(['email', 'fullName', 'classCode', 'survey', 'period', 
+                'totalExpectedSurveys', 'totalSurveysTaken', 'responseRate'])
+        .agg(count=('nps_index', lambda x: (x <= 7).sum()))
+        .reset_index())
+
+    total = (nps_teachers.explode('nps_index')
+        .groupby(['email', 'fullName', 'classCode', 'survey', 'period', 
+                'totalExpectedSurveys', 'totalSurveysTaken', 'responseRate'])
+        .agg(count=('nps_index', 'count'))
+        .reset_index())
+
+    joined_nps = pd.merge(promoters_count, detractors_count, on=['email', 'fullName', 'classCode', 'survey', 'period', 'totalExpectedSurveys',
+                                                                 'totalSurveysTaken', 'responseRate'])
+    joined_nps = pd.merge(joined_nps, total, on=['email', 'fullName', 'classCode', 'survey', 'period', 'totalExpectedSurveys',
+                                                 'totalSurveysTaken', 'responseRate'])
+
+    joined_nps.columns = ['email', 'fullName', 'classCode', 'survey', 'period', 'totalExpectedSurveys',
+                          'totalSurveysTaken', 'responseRate', 'PROMOTERS', 'DETRACTORS', 'TOTAL']
+
+    joined_nps['NPS'] = ((joined_nps['PROMOTERS'] -
+                         joined_nps['DETRACTORS']) / joined_nps['TOTAL']) * 100
+
+    return responses_grouped, joined_nps
 
 
 def clear_comments(comments: tuple[str]):
@@ -252,9 +291,11 @@ def group_comments(comments, schoolCourseCodes):
     comments_grouped['start_doing_comments'] = comments_grouped['start_doing_comments'].apply(
         tuple)
 
+    # Cria uma coluna com a turma
     comments_grouped['turma'] = comments_grouped['crs_code'].apply(
-        lambda x: x.split('.')[-1]).apply(extrair_turma_e_divisao)
+        lambda x: x.split('.')[-1]).apply(extract_class_and_subdivision)
 
+    # Limpa os comentários
     comments_grouped['continue_doing_comments'] = comments_grouped['continue_doing_comments'].apply(
         clear_comments)
     comments_grouped['stop_doing_comments'] = comments_grouped['stop_doing_comments'].apply(
@@ -266,50 +307,51 @@ def group_comments(comments, schoolCourseCodes):
 
 
 # Configurações da página
-st.title("Sistema de acompanhamento de docentes")
+st.title("Sistema de acompanhamento de turmas")
 st.write("Este é um sistema de acompanhamento de turmas da PGLS. Aqui você conseguirá ver as disciplinas que os alunos dessas turmas cursaram, as suas avaliações sobre os professores e os comentários feitos por eles.")
 
 # Busca os dados do banco e chama as funções responsáveis por modificar eles
 teachers, responses, surveys_dim, surveyAssessmentFact_dim, question_dim, response_set_dim, period_dim, course_dim, comments = fetch_data()
-responses_grouped = group_responses(
+responses_grouped, nps = group_responses(
     teachers, responses, surveys_dim, surveyAssessmentFact_dim, question_dim, response_set_dim, period_dim, course_dim)
 comments_grouped = group_comments(
     comments, responses_grouped['schoolCourseCode'].unique())
-lesson_plans = pd.read_csv('src/data/lesson_plans.csv')
+lesson_plans = pd.read_csv('data/lesson_plans.csv')
 
 # Cria uma lista de anos disponíveis para filtrar
 years_available = responses_grouped['year'].unique().tolist()
 years_available.sort(reverse=True)
-ano = st.multiselect('Selecione o ano', years_available,
+year = st.multiselect('Selecione o ano', years_available,
                      default=years_available)
 
 # Filtra os dados pelo ano
-responses_grouped = responses_grouped[responses_grouped['year'].isin(ano)]
+responses_grouped = responses_grouped[responses_grouped['year'].isin(year)]
 
 # Cria uma lista com os nomes dos professores para serem filtrados
-turmas_list = responses_grouped['turma'].unique().tolist()
+class_codes_list = responses_grouped['turma'].unique().tolist()
 
 # Cria a caixa de seleção para filtrar os professores
-turma = st.selectbox('Selecione a turma', [
-    'Nenhuma'] + turmas_list)
+class_codes = st.selectbox('Selecione a turma', [
+    'Nenhuma'] + class_codes_list)
 
 # Cria a caixa de seleção para filtrar as turmas
-if turma == 'Nenhuma':
-    professor = st.selectbox('Selecione o professor', ['Todos'], disabled=True)
+if class_codes == 'Nenhuma':
+    teacher = st.selectbox('Selecione o professor', ['Todos'], disabled=True)
 else:
-    professor = st.selectbox('Selecione o professor', [
-        'Todos'] + responses_grouped[responses_grouped['turma'] == turma]['fullName'].unique().tolist())
+    teacher = st.selectbox('Selecione o professor', [
+        'Todos'] + responses_grouped[responses_grouped['turma'] == class_codes]['fullName'].unique().tolist())
 
-if professor == 'Todos':
+if teacher == 'Todos':
     dados_filtrados = responses_grouped.copy()
-    fitered_comments = comments_grouped[comments_grouped['turma'] == turma]
+    filtered_comments = comments_grouped[comments_grouped['turma'] == class_codes]
 else:
-    dados_filtrados = responses_grouped[responses_grouped['fullName'] == professor].copy(
-    )
+    dados_filtrados = responses_grouped[responses_grouped['fullName'] == teacher].copy()
+    teacher_username = teachers[teachers['fullName'] == teacher]['coursevalUserName'].values[0]
+    filtered_comments = comments_grouped[comments_grouped['eval_username'] == teacher_username].copy()
 
-if turma != 'Nenhuma':
+if class_codes != 'Nenhuma':
     # Filtra os dados pela turma
-    dados_filtrados = dados_filtrados[dados_filtrados['turma'] == turma]
+    dados_filtrados = dados_filtrados[dados_filtrados['turma'] == class_codes]
     dados_filtrados = pd.merge(
         dados_filtrados, lesson_plans, left_on='classCode', right_on='codigo_turma', how='left')
 
@@ -332,14 +374,18 @@ if turma != 'Nenhuma':
 
     # Agrupa as notas por categoria e faz a média das notas
     feedbacks = dados_filtrados.groupby(['questionSubCategory', 'year', 'period', 'responseScale', 'classCode', 'turma',
-                                         'totalExpectedSurveys', 'totalSurveysTaken', 'responseRate']).agg({
+                                         'totalExpectedSurveys', 'totalSurveysTaken', 'responseRate', 'courseName']).agg({
                                              'responseValue': 'mean'
                                          })
 
     st.write('## Avaliações por categoria')
     df_feedbacks = feedbacks.reset_index()
-    df_feedbacks = df_feedbacks[df_feedbacks['responseRate'] > 30]
-
+    min_responses_relative = st.slider(
+        "Quantidade relativa de respostas", 0, 100, 20)
+    # Busca as turmas que tiveram uma taxa de resposta acima de um valor mínimo
+    df_feedbacks = df_feedbacks[df_feedbacks['responseRate']
+                                > min_responses_relative]
+    
     # Renomeia os valores das categorias para facilitar a visualização
     df_feedbacks['questionSubCategory'] = df_feedbacks['questionSubCategory'].replace({
         'Questões relacionadas ao feedback / Feedback:': 'feedback',
@@ -378,20 +424,23 @@ if turma != 'Nenhuma':
     )
 
     # Total de respostas por disciplina
-    survey_info_grouped = (df_feedbacks.groupby(['classCode'])[[
-        'totalExpectedSurveys', 'totalSurveysTaken', 'responseRate']].max())
+    survey_info_grouped = (df_feedbacks.groupby(['classCode', 'courseName'])[[
+        'classCode', 'totalExpectedSurveys', 'totalSurveysTaken', 'responseRate']].max())
 
     for index, row in survey_info_grouped.iterrows():
-        st.write(f"### Disciplina: {index}")
+        st.write(f"### Disciplina: {index[1]}")
         col1, col2, col3, = st.columns(3)
         with col1:
             st.metric(label="Total de respostas esperadas",
                       value=row['totalExpectedSurveys'])
+            st.metric(label="Promotores", value=nps[nps['classCode'] == index[0]]['PROMOTERS'].values[0])
         with col2:
             st.metric(label="Total de respostas recebidas",
                       value=row['totalSurveysTaken'])
+            st.metric(label="Detratores", value=nps[nps['classCode'] == index[0]]['DETRACTORS'].values[0])
         with col3:
             st.metric(label="Taxa de resposta", value=row['responseRate'])
+            st.metric(label="NPS", value=nps[nps['classCode'] == index[0]]['NPS'].values[0])
         st.markdown("---")
 
     st.write("## Comentários")
@@ -402,7 +451,7 @@ if turma != 'Nenhuma':
     start_doing = 'Comece a fazer: '
     all_comments = []
 
-    for index, row in fitered_comments.iterrows():
+    for index, row in filtered_comments.iterrows():
         continue_doing += ' '.join(row['continue_doing_comments'])
         stop_doing += ' '.join(row['stop_doing_comments'])
         start_doing += ' '.join(row['start_doing_comments'])
@@ -412,7 +461,7 @@ if turma != 'Nenhuma':
         response = client.chat.completions.create(
             model='gpt-4o-mini',
             messages=[
-                {"role": "developer", "content": "A seguir, há uma lista de comentários de alunos sobre o professor. Escreva um resumo deles e sugira melhorias."},
+                {"role": "developer", "content": st.secrets.CLASS_PROMPT},
                 {"role": "user", "content": continue_doing + stop_doing + start_doing},
             ]
         )
@@ -420,7 +469,7 @@ if turma != 'Nenhuma':
         st.write(response.choices[0].message.content)
     st.write('---')
     # Mostra os comentários
-    for index, row in fitered_comments.iterrows():
+    for index, row in filtered_comments.iterrows():
         st.write(f"Professor: {row['eval_username']}")
         st.write(f"Comentários de {row['survey']}:")
 

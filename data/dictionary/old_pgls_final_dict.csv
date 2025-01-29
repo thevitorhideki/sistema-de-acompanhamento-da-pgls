@@ -1,0 +1,14 @@
+id,category,question,scale
+R006,Questões relacionadas ao planejamento: / Course Planning and Structure:,Enfatiza os conteúdos comuns com outras disciplinas.,1;2;3;4
+R007,Questões relacionadas ao planejamento: / Course Planning and Structure:,Esclarece os princípios (a essência) da disciplina.,1;2;3;4
+R008,Questões relacionadas à dinâmica: / Classroom Dynamics:,Demonstra dominar a matéria.,1;2;3;4
+R009,Questões relacionadas à dinâmica: / Classroom Dynamics:,Conduz a exposição dos conteúdos e discussões de maneira organizada e clara.,1;2;3;4
+R010,Questões relacionadas à dinâmica: / Classroom Dynamics:,Relaciona os conteúdos apresentados com os princípios da disciplina.,1;2;3;4
+R011,Questões relacionadas à dinâmica: / Classroom Dynamics:,"Esclarece os significados dos conceitos estudados, além de apresentar definições formais.",1;2;3;4
+R012,Questões relacionadas à dinâmica: / Classroom Dynamics:,Propõe desafios e tarefas que estimulam o raciocínio do aluno.,1;2;3;4
+R013,Questões relacionadas à dinâmica: / Classroom Dynamics:,Discute a relevância do que é ensinado (o porquê de aprender o conteúdo da disciplina e o vínculo com a prática).,1;2;3;4
+R014,Questões relacionadas ao planejamento: / Course Planning and Structure:,Estimula e leva em conta a participação dos alunos na construção dos conceitos e ideias.,1;2;3;4
+R015,Questões relacionadas à dinâmica: / Classroom Dynamics:,"Mantém um ambiente em sala de mútuo respeito, no qual os alunos se sentem à vontade para participar.",1;2;3;4
+R020,Questões relacionadas à avaliação / Assessment:,"Elabora avaliações que estimulam o raciocínio do aluno, exigindo mais do que memorização.",1;2;3;4
+R021,Questões relacionadas ao feedback / Feedback:,Fornece feedback (sobre trabalhos e avaliações) que contribui para o aprendizado do aluno.,1;2;3;4
+R023,Avaliação Geral,"Considerando o desempenho do professor nessa disciplina, você o recomendaria?",1;2
