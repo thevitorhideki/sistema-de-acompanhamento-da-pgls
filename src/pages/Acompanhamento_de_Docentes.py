@@ -322,22 +322,21 @@ old_survey_parcial = pd.read_csv('data/old_pgls_parcial.csv')
 old_survey_final = pd.read_csv('data/old_pgls_final.csv')
 
 # Cria uma lista de anos disponíveis para filtrar
-years_available = list(set(responses_grouped['year'].unique().tolist(
-) + old_survey_final['ano'].unique().tolist() + old_survey_parcial['ano'].unique().tolist()))
+years_available = responses_grouped['year'].unique().tolist()
 years_available.sort(reverse=True)
 year = st.multiselect('Selecione o ano', years_available,
                       default=years_available)
 
 # Filtra os dados pelo ano
 responses_grouped = responses_grouped[responses_grouped['year'].isin(year)]
-old_survey_final = old_survey_final[old_survey_final['ano'].isin(year)]
-old_survey_parcial = old_survey_parcial[old_survey_parcial['ano'].isin(year)]
+# old_survey_final = old_survey_final[old_survey_final['ano'].isin(year)]
+# old_survey_parcial = old_survey_parcial[old_survey_parcial['ano'].isin(year)]
 
 # Cria uma lista com os nomes dos professores para serem filtrados
 teachers_names = [name.upper()
                   for name in responses_grouped['fullName'].unique().tolist()]
-teachers_names = list(set(old_survey_parcial['professor'].unique().tolist(
-) + old_survey_final['professor'].unique().tolist() + teachers_names))
+# teachers_names = list(set(old_survey_parcial['professor'].unique().tolist(
+# ) + old_survey_final['professor'].unique().tolist() + teachers_names))
 teachers_names = sorted(teachers_names)
 
 # Cria a caixa de seleção para filtrar os professores
