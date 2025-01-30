@@ -176,7 +176,7 @@ def group_responses(teachers, responses, surveys_dim, surveyAssessmentFact_dim, 
     })
 
     # Converte o ano para inteiro
-    responses_from_pgls.loc[:, 'year'] = responses_from_pgls['year'].apply(int)
+    responses_from_pgls['year'] = responses_from_pgls['year'].apply(int)
 
     # Adiciona uma coluna "turma" com a turma e a divisão
     responses_from_pgls.loc[:, 'classCode'] = responses_from_pgls['schoolCourseCode'].apply(
