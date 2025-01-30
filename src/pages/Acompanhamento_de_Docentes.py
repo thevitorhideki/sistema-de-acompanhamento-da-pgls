@@ -434,6 +434,7 @@ if teacher != 'Nenhum':
         y='responseValue',
         y_label="Valor",
         color='classCode',
+        height=600
     )
 
     # Total de respostas por disciplina

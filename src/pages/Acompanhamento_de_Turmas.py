@@ -418,8 +418,6 @@ if class_codes != 'Nenhuma':
         y='responseValue',
         y_label="Valor",
         color='classCode',
-        use_container_width=False,
-        width=1300,
         height=600
     )
 
