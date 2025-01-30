@@ -308,7 +308,7 @@ def group_comments(comments, schoolCourseCodes):
 
 # Configurações da página
 st.title("Sistema de acompanhamento de turmas")
-st.write("Este é um sistema de acompanhamento de turmas da PGLS. Aqui você conseguirá ver as disciplinas que os alunos dessas turmas cursaram, as suas avaliações sobre os professores e os comentários feitos por eles.")
+st.write("Nessa aba é possível acompanhar o desempenho das turmas de PGLS. É ideal para entender como uma turma está indo em relação ao engajamento e satisfação com os professores e o curso.")
 
 # Busca os dados do banco e chama as funções responsáveis por modificar eles
 teachers, responses, surveys_dim, surveyAssessmentFact_dim, question_dim, response_set_dim, period_dim, course_dim, comments = fetch_data()

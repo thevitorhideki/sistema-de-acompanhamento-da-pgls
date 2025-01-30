@@ -309,7 +309,7 @@ def group_comments(comments, schoolCourseCodes):
 
 # Configurações da página
 st.title("Sistema de acompanhamento de docentes")
-st.write("Este é um sistema de acompanhamento de docentes da PGLS. Aqui você pode ver as disciplinas que um determinado professor ministrou, as notas que ele recebeu em cada categoria, os comentários dos alunos e um resumo dos comentários.")
+st.write("Nessa aba é possível acompanhar o desempenho dos professores das disciplinas de PGLS. São apresentados dados valiosos para o acompanhamento do docente, como o plano de aula de cada disciplina, o feedback que recebeu de suas turmas e outros indicadores.")
 
 # Busca os dados do banco e chama as funções responsáveis por modificar eles
 teachers, responses, surveys_dim, surveyAssessmentFact_dim, question_dim, response_set_dim, period_dim, course_dim, comments = fetch_data()
@@ -455,7 +455,7 @@ if teacher != 'Nenhum':
             st.metric(label="Detratores",
                       value=nps[nps['classCode'] == index[0]]['DETRACTORS'].values[0])
         with col3:
-            st.metric(label="Taxa de resposta", value=row['responseRate'])
+            st.metric(label="Taxa de resposta", value=f"{row['responseRate']}%")
             st.metric(
                 label="NPS", value=nps[nps['classCode'] == index[0]]['NPS'].values[0])
         st.markdown("---")

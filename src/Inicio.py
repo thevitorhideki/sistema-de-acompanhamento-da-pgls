@@ -6,14 +6,14 @@ st.set_page_config(
     page_icon=":book:"
 )
 
-st.write("# Bem vindo ao Sistema de Gerenciamento da PGLS :wave:")
+st.write("# Bem vindo ao Sistema de Acompanhamento da PGLS :wave:")
 st.write("Nesse sistema é possível acompanhar o desempenho dos professores e da turma de PGLS.")
 st.write('---')
 st.write("### Menu de Navegação")
 st.write("1. **Avaliação dos Professores**")
-st.write("Nessa aba é possível acompanhar o desempenho dos professores da disciplina de PGLS. São apresentados gráficos com a média dos feedbacks e comentários dos alunos.")
+st.write("Nessa aba é possível acompanhar o desempenho dos professores das disciplinas de PGLS. São apresentados dados valiosos para o acompanhamento do docente, como o plano de aula de cada disciplina, o feedback que recebeu de suas turmas e outros indicadores.")
 st.write("2. **Avaliação da Turma**")
-st.write("Nessa aba é possível acompanhar o desempenho da turma de PGLS. São apresentados gráficos com a média dos feedbacks e comentários da turma.")
+st.write("Nessa aba é possível acompanhar o desempenho das turmas de PGLS. É ideal para entender como uma turma está indo em relação ao engajamento e satisfação com os professores e o curso.")
 st.write('---')
 st.write('### Sobre o Sistema')
 st.write('Esse sistema foi desenvolvido para auxiliar a coordenação executiva de PGLS a acompanhar o desempenho dos professores e da turma.')
