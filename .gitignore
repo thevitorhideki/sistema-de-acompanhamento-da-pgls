@@ -1,6 +1,5 @@
 .venv
 .env
 .vscode
-*.db
 *.sqlite3
 .streamlit/secrets.toml
