@@ -1,6 +1,6 @@
 import streamlit as st
 import pandas as pd
-import sqlite3
+from sqlalchemy import create_engine
 import re
 from openai import OpenAI
 
@@ -14,7 +14,8 @@ client = OpenAI(api_key=st.secrets.OPENAI_API_KEY)
 
 def fetch_data():
     # Conecta ao banco de dados
-    conn = sqlite3.connect(st.secrets.DATABASE_URL)
+    engine = create_engine(st.secrets.DATABASE_URL)
+    conn = engine.connect()
 
     # Busca todos os campos da tabela de pessoas onde ela está ativa na escola, é um professor e o nome do programa é Not Applicable
     query = """
@@ -318,26 +319,21 @@ responses_grouped, nps = group_responses(
 comments_grouped = group_comments(
     comments, responses_grouped['schoolCourseCode'].unique())
 lesson_plans = pd.read_csv('data/lesson_plans.csv')
-old_survey_parcial = pd.read_csv('data/old_pgls_parcial.csv')
-old_survey_final = pd.read_csv('data/old_pgls_final.csv')
+# old_survey_parcial = pd.read_csv('data/old_pgls_parcial.csv')
+# old_survey_final = pd.read_csv('data/old_pgls_final.csv')
 
 # Cria uma lista de anos disponíveis para filtrar
-years_available = list(set(responses_grouped['year'].unique().tolist(
-) + old_survey_final['year'].unique().tolist() + old_survey_parcial['year'].unique().tolist()))
+years_available = responses_grouped['year'].unique().tolist()
 years_available.sort(reverse=True)
 year = st.multiselect('Selecione o ano', years_available,
                       default=years_available)
 
 # Filtra os dados pelo ano
 responses_grouped = responses_grouped[responses_grouped['year'].isin(year)]
-old_survey_final = old_survey_final[old_survey_final['year'].isin(year)]
-old_survey_parcial = old_survey_parcial[old_survey_parcial['year'].isin(year)]
 
 # Cria uma lista com os nomes dos professores para serem filtrados
 teachers_names = [name.upper()
                   for name in responses_grouped['fullName'].unique().tolist()]
-teachers_names = list(set(old_survey_parcial['fullName'].unique().tolist(
-) + old_survey_final['fullName'].unique().tolist() + teachers_names))
 teachers_names = sorted(teachers_names)
 
 # Cria a caixa de seleção para filtrar os professores
@@ -346,13 +342,12 @@ teacher = st.selectbox('Selecione o Professor', [
 
 # Cria a caixa de seleção para filtrar as turmas
 if teacher == 'Nenhum':
-    class_codes_list = list(set(responses_grouped['turma'].unique().tolist(
-    ) + old_survey_final['turma'].unique().tolist() + old_survey_parcial['turma'].unique().tolist()))
+    class_codes_list = responses_grouped['turma'].unique().tolist()
     class_code = st.selectbox('Selecione a turma', [
         'Todas'] + class_codes_list, disabled=True)
 else:
     class_codes_list = responses_grouped[responses_grouped['fullName']
-                                         == teacher]['turma'].unique().tolist() + old_survey_final[old_survey_final['fullName'] == teacher]['turma'].unique().tolist() + old_survey_parcial[old_survey_parcial['fullName'] == teacher]['turma'].unique().tolist()
+                                         == teacher]['turma'].unique().tolist()
     class_code = st.selectbox('Selecione a turma', [
                               'Todas'] + class_codes_list)
 class_codes_list.sort()
@@ -370,34 +365,14 @@ if teacher != 'Nenhum':
     filtered_data = pd.merge(
         filtered_data, lesson_plans, left_on='classCode', right_on='codigo_turma', how='left')
     nps = nps[nps['fullName'] == teacher]
-    filtered_old_survey_final = old_survey_final[old_survey_final['fullName']
-                                                 == teacher]
-    filtered_old_survey_parcial = old_survey_parcial[old_survey_parcial['fullName']
-                                                     == teacher]
 
     filtered_subjects = filtered_data.drop_duplicates('classCode')
     filtered_subjects = filtered_subjects[[
         'courseName', 'turma', 'year', 'period', 'link']]
 
-    filtered_old_survey_final.drop_duplicates('turma', inplace=True)
-    filtered_old_survey_final = filtered_old_survey_final[[
-        'courseName', 'turma', 'year', 'period', 'link']]
-
-    filtered_old_survey_parcial.drop_duplicates('turma', inplace=True)
-    filtered_old_survey_parcial = filtered_old_survey_parcial[[
-        'courseName', 'turma', 'year', 'period', 'link']]
-
-    filtred_old = pd.concat(
-        [filtered_old_survey_final, filtered_old_survey_parcial])
-    filtred_old = filtred_old.drop_duplicates('turma')
-
-    subjects = pd.concat([filtered_subjects, filtred_old])
-    subjects = subjects.drop_duplicates('turma')
-    subjects.sort_values(['year', 'period'], ascending=False, inplace=True)
-
     # Mostra as disciplinas que o professor ministrou
     st.write("## Disciplinas que esse professor ministrou:")
-    for index, row in subjects.iterrows():
+    for index, row in filtered_subjects.iterrows():
         st.write(f"#### Disciplina: {
                  row['courseName']} - Turma: {row['turma']}")
         col1, col2, col3, = st.columns(3, vertical_alignment='center')
@@ -419,9 +394,6 @@ if teacher != 'Nenhum':
 
     st.write('## Avaliações por categoria')
     df_feedbacks = feedbacks.reset_index()
-    responeses_old_final = old_survey_final[old_survey_final['fullName']
-                                             == teacher]
-    responeses_old_final = responeses_old_final[['year', 'period', 'courseName', 'questionSubCategory', 'classCode', 'responseValue']]
         
     min_responses_relative = st.slider(
         "Quantidade relativa de respostas", 0, 100, 20)
@@ -430,10 +402,9 @@ if teacher != 'Nenhum':
                                 > min_responses_relative]
 
     df_feedbacks_likert = df_feedbacks[['year', 'period', 'courseName', 'questionSubCategory', 'classCode', 'responseValue']]
-    df_feedbacks_likert = pd.concat([df_feedbacks_likert, responeses_old_final])
     
     # Renomeia os valores das categorias para facilitar a visualização
-    df_feedbacks_likert['questionSubCategory'] = df_feedbacks_likert['questionSubCategory'].replace({
+    df_feedbacks_likert.loc[:, 'questionSubCategory'] = df_feedbacks_likert['questionSubCategory'].replace({
         'Questões relacionadas ao feedback / Feedback:': 'feedback',
         'Questões relacionadas ao planejamento: / Course Planning and Structure:': 'planejamento',
         'Questões relacionadas à avaliação / Assessment:': 'avaliacao',
@@ -446,7 +417,6 @@ if teacher != 'Nenhum':
                                 != 'Avaliação Geral']
 
     # Cria um checkbox para cada disciplina para mostrar ou não as notas
-    df_feedbacks_likert
     class_codes = df_feedbacks_likert['classCode'].unique().tolist()
     classes_to_show = st.pills("Selecione as turmas para visualizar as notas",
                                class_codes, selection_mode="multi", default=class_codes)
@@ -468,14 +438,9 @@ if teacher != 'Nenhum':
     # Total de respostas por disciplina
     survey_info_grouped = (df_feedbacks.groupby(['classCode', 'courseName'])[[
         'classCode', 'totalExpectedSurveys', 'totalSurveysTaken', 'responseRate']].max())
-    survey_info_grouped = pd.concat([survey_info_grouped, old_survey_final[old_survey_final['fullName'] == teacher][['classCode']]])
     
-    old_nps_final = old_survey_final[old_survey_final['fullName'] == teacher].drop_duplicates(['continue_doing', 'stop_doing', 'start_doing'])
-    old_nps_final = old_nps_final[['classCode', 'PROMOTERS', 'DETRACTORS', 'NPS']]
     nps = nps[['classCode', 'totalExpectedSurveys', 'totalSurveysTaken', 'responseRate', 'PROMOTERS', 'DETRACTORS', 'NPS']]
     
-    all_nps = pd.concat([nps, old_nps_final])
-
     for index, row in survey_info_grouped.iterrows():
         st.write(f"### Disciplina: {row['classCode']}")
         col1, col2, col3, = st.columns(3)
@@ -484,26 +449,26 @@ if teacher != 'Nenhum':
                 st.metric(label="Total de respostas esperadas",
                         value=row['totalExpectedSurveys'])
             st.metric(label="Promotores",
-                      value=all_nps[all_nps['classCode'] == row['classCode']]['PROMOTERS'].values[0])
+                      value=nps[nps['classCode'] == row['classCode']]['PROMOTERS'].values[0])
         with col2:
             if row['totalSurveysTaken'] == float:
                 st.metric(label="Total de respostas recebidas",
                         value=row['totalSurveysTaken'])
             st.metric(label="Detratores",
-                      value=all_nps[all_nps['classCode'] == row['classCode']]['DETRACTORS'].values[0])
+                      value=nps[nps['classCode'] == row['classCode']]['DETRACTORS'].values[0])
         with col3:
             if row['responseRate'] == float:
                 st.metric(label="Taxa de resposta",
                         value=f"{row['responseRate']}%")
             st.metric(
-                label="NPS", value=all_nps[all_nps['classCode'] == row['classCode']]['NPS'].values[0])
+                label="NPS", value=nps[nps['classCode'] == row['classCode']]['NPS'].values[0])
         st.markdown("---")
 
     st.write("## Comentários")
 
     # Acha o username do professor
-    teachers_username = teachers[teachers['fullName'].str.upper(
-    ) == teacher]['coursevalUserName'].values[0]
+    teachers['fullName'] = teachers['fullName'].str.upper()
+    teachers_username = teachers[teachers['fullName'] == teacher]['coursevalUserName'].values[0]
 
     # Filtra os comentários do professor
     comments_teacher = comments_grouped[(

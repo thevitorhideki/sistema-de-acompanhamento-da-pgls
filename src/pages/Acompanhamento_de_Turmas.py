@@ -1,8 +1,8 @@
 import streamlit as st
 import pandas as pd
-import sqlite3
 import re
 from openai import OpenAI
+from sqlalchemy import create_engine
 
 st.set_page_config(page_title="PGLS | Acompanhamento de Turmas",
                    page_icon="📈", layout='wide')
@@ -13,7 +13,8 @@ client = OpenAI(api_key=st.secrets.OPENAI_API_KEY)
 
 def fetch_data():
     # Conecta ao banco de dados
-    conn = sqlite3.connect(st.secrets.DATABASE_URL)
+    engine = create_engine(st.secrets.DATABASE_URL)
+    conn = engine.connect()
 
     # Busca todos os campos da tabela de pessoas onde ela está ativa na escola, é um professor e o nome do programa é Not Applicable
     query = """
