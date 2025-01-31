@@ -1,6 +1,6 @@
 # Sistema de acompanhamento da PGLS
 
-**O website ainda está incompleto pois não há conexão com o banco de dados do Insper, e sim com um sqlite. Portanto o próximo passo é fazer essa conexão para o pleno funcionamento.**
+**O website ainda está incompleto pois não há conexão com o banco de dados do Insper, e sim com sqlite e csv. Portanto o próximo passo é fazer essa conexão para o pleno funcionamento.**
 
 Esse sistema foi desenvolvido durante o estágio de férias de 2025.1 no Insper. Nele é possível acompanhar os docentes e as turmas da PGLS.
 
